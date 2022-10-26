@@ -116,9 +116,6 @@ public:
     /** Return vector of cached deposits for nSidechain. */
     std::vector<SidechainDeposit> GetDeposits(uint8_t nSidechain) const;
 
-    /** Return vector of cached deposits for nSidechain. */
-    std::vector<SidechainDeposit> GetDeposits(const std::string& sidechainPriv) const;
-
     /** Return the hash of the last block SCDB processed */
     uint256 GetHashBlockLastSeen();
 
@@ -168,10 +165,6 @@ public:
 
     /** Is there anything being tracked by the SCDB? */
     bool HasState() const;
-
-    /** Return true if the transaction spends sidechain inputs. Return the
-     * sidechain number by reference */
-    bool HasSidechainScript(const std::vector<CScript>& vScript, uint8_t& nSidechain) const;
 
     /** Return true if the deposit transaction is cached */
     bool HaveDepositCached(const uint256& txid) const;

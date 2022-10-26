@@ -223,34 +223,6 @@ bool ActivateSidechain(SidechainDB& scdbTest, Sidechain proposal, int nHeight)
     CBlock block;
     block.vtx.push_back(MakeTransactionRef(std::move(mtx)));
 
-    const uint8_t nSC = proposal.nSidechain;
-    const unsigned char vchSC[1] = { nSC };
-
-    std::vector<unsigned char> vch256;
-    vch256.resize(CSHA256::OUTPUT_SIZE);
-    CSHA256().Write(&vchSC[0], 1).Finalize(&vch256[0]);
-
-    CKey key;
-    key.Set(vch256.begin(), vch256.end(), false);
-
-    CBitcoinSecret vchSecret(key);
-
-    if (!key.IsValid())
-        return false;
-
-    CPubKey pubkey = key.GetPubKey();
-    if (!key.VerifyPubKey(pubkey))
-        return false;
-
-    CKeyID vchAddress = pubkey.GetID();
-
-    // Generate deposit script
-    CScript sidechainScript = CScript() << OP_DUP << OP_HASH160 << ToByteVector(vchAddress) << OP_EQUALVERIFY << OP_CHECKSIG;
-
-    proposal.strPrivKey = vchSecret.ToString();
-    proposal.strKeyID = HexStr(vchAddress);
-    proposal.scriptPubKey = sidechainScript;
-
     GenerateSidechainActivationCommitment(block, proposal.GetSerHash());
     if (block.vtx.front()->vout.size() != 2)
         return false;

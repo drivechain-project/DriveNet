@@ -569,7 +569,7 @@ void GetSidechainValues(const CCoinsView& coins, const CTransaction &tx, CAmount
     for (const Coin& c : vCoin) {
         const CTxOut& out = c.out;
         CScript scriptPubKey = out.scriptPubKey;
-        if (scdb.HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain)) {
+        if (scriptPubKey.IsDrivechain(nSidechain)) {
             amtSidechainUTXO += out.nValue;
         } else {
             amtUserInput += out.nValue;
@@ -579,7 +579,7 @@ void GetSidechainValues(const CCoinsView& coins, const CTransaction &tx, CAmount
     // Count outputs
     for (const CTxOut& out : tx.vout) {
         CScript scriptPubKey = out.scriptPubKey;
-        if (scdb.HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain)) {
+        if (scriptPubKey.IsDrivechain(nSidechain)) {
             amtReturning += out.nValue;
         } else {
             amtWithdrawn += out.nValue;
@@ -668,7 +668,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
     bool fCTIPUpdated = false;
     std::map<uint8_t, SidechainCTIP> mapCTIPCopy;
     mapCTIPCopy = mempool.mapLastSidechainDeposit;
-    bool fSidechainOutput = false;
+    bool fBurnFound = false;
     uint8_t nSidechain;
     if (drivechainsEnabled)
     {
@@ -703,15 +703,15 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                 if (!scriptPubKey.size())
                     continue;
 
-                if (scdb.HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain)) {
-                    if (fSidechainOutput) {
+                if (scriptPubKey.IsDrivechain(nSidechain)) {
+                    if (fBurnFound) {
                         // If we already found the burn output, finding another
                         // makes the transaction invalid
                         return state.DoS(0, false, REJECT_INVALID, "sidechain-deposit-invalid-multiple-burn-outputs");
                     }
 
                     // We found the deposit burn output
-                    fSidechainOutput = true;
+                    fBurnFound = true;
 
                     // Copy output index of deposit and move on
                     outpoint.n = i;
@@ -741,7 +741,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                 }
             }
 
-            if (!fSidechainOutput)
+            if (!fBurnFound)
                 return state.DoS(0, false, REJECT_INVALID, "sidechain-deposit-invalid-no-sidechain-output");
 
             if (!fDestOutput)
@@ -897,7 +897,7 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         }
 
         CTxMemPoolEntry entry(ptx, nFees, nAcceptTime, chainActive.Height(),
-                              fSpendsCoinbase, fSidechainOutput, nSidechain,
+                              fSpendsCoinbase, fBurnFound, nSidechain,
                               nSigOpsCost, lp);
         unsigned int nSize = entry.GetTxSize();
 
@@ -1775,7 +1775,9 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         // Check that all outputs are available and match the outputs in the block itself
         // exactly.
         for (size_t o = 0; o < tx.vout.size(); o++) {
-            if (!tx.vout[o].scriptPubKey.IsUnspendable()) {
+            uint8_t nSidechain;
+            if (!tx.vout[o].scriptPubKey.IsUnspendable() &&
+                    !tx.vout[o].scriptPubKey.IsDrivechain(nSidechain)) {
                 COutPoint out(hash, o);
                 Coin coin;
                 bool is_spent = view.SpendCoin(out, false, &coin);
@@ -2174,12 +2176,13 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
 
             // Set fSidechainInputs & nSidechain
             if (drivechainsEnabled) {
-                std::vector<CScript> vScript;
                 for (const CTxIn& in : tx.vin) {
                     Coin coin = view.AccessCoin(in.prevout);
-                    vScript.push_back(coin.out.scriptPubKey);
+                    if (coin.out.scriptPubKey.IsDrivechain(nSidechain)) {
+                        fSidechainInputs = true;
+                        break;
+                    }
                 }
-                fSidechainInputs = scdb.HasSidechainScript(vScript, nSidechain);
             }
 
             // Check that transaction is BIP68 final
@@ -2264,7 +2267,7 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             uint8_t nSidechain;
             for (const CTxOut out : tx.vout) {
                 const CScript& scriptPubKey = out.scriptPubKey;
-                if (scdb.HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain)) {
+                if (scriptPubKey.IsDrivechain(nSidechain)) {
                     fSidechainOutput = true;
                     break;
                 }

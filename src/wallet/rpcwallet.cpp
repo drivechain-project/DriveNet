@@ -3588,7 +3588,7 @@ UniValue createsidechaindeposit(const JSONRPCRequest& request)
 
     ObserveSafeMode();
 
-    // nSidechain
+    // Check sidechain number we are depositing to
     unsigned int nSidechain = request.params[0].get_int();
     if (!scdb.IsSidechainActive(nSidechain)) {
         std::string strError = "Invalid sidechain number";
@@ -3619,7 +3619,7 @@ UniValue createsidechaindeposit(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strError);
     }
 
-    // Double check sidechain number
+    // Check number from address matches sidechain we are depositing to
     if (nSidechainFromAddress != nSidechain) {
         std::string strError = "Invalid sidechain deposit address - sidechain number mismatch";
         LogPrintf("%s: %s\n", __func__, strError);

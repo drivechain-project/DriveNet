@@ -34,7 +34,7 @@ int SidechainActivationTableModel::rowCount(const QModelIndex & /*parent*/) cons
 
 int SidechainActivationTableModel::columnCount(const QModelIndex & /*parent*/) const
 {
-    return 10;
+    return 8;
 }
 
 QVariant SidechainActivationTableModel::data(const QModelIndex &index, int role) const
@@ -89,16 +89,7 @@ QVariant SidechainActivationTableModel::data(const QModelIndex &index, int role)
                     .arg(SIDECHAIN_ACTIVATION_MAX_FAILURES);
             return str;
         }
-        // Key
         if (col == 7) {
-            return object.sidechainKeyID;
-        }
-        // Private key
-        if (col == 8) {
-            return object.sidechainPriv;
-        }
-        // Hash
-        if (col == 9) {
             return object.hash;
         }
     }
@@ -126,10 +117,6 @@ QVariant SidechainActivationTableModel::headerData(int section, Qt::Orientation 
             case 6:
                 return QString("Fails");
             case 7:
-                return QString("Key");
-            case 8:
-                return QString("Private Key");
-            case 9:
                 return QString("Hash");
             }
         }
@@ -237,8 +224,6 @@ void SidechainActivationTableModel::updateModel()
         object.fReplacement = scdb.IsSidechainActive(s.proposal.nSidechain);
         object.title = QString::fromStdString(s.proposal.title);
         object.description = QString::fromStdString(s.proposal.description);
-        object.sidechainKeyID = QString::fromStdString(s.proposal.strKeyID);
-        object.sidechainPriv = QString::fromStdString(s.proposal.strPrivKey);
         object.nAge = s.nAge;
         object.nFail = s.nFail;
         object.hash = QString::fromStdString(s.proposal.GetSerHash().ToString());

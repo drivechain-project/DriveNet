@@ -18,10 +18,7 @@
 
 bool Sidechain::operator==(const Sidechain& s) const
 {
-    return (strPrivKey == s.strPrivKey &&
-            scriptPubKey == s.scriptPubKey &&
-            strKeyID == s.strKeyID &&
-            title == s.title &&
+    return (title == s.title &&
             description == s.description &&
             hashID1 == s.hashID1 &&
             hashID2 == s.hashID2 &&
@@ -40,9 +37,6 @@ std::string Sidechain::ToString() const
     ss << "fActive=" << fActive << std::endl;
     ss << "nSidechain=" << (unsigned int)nSidechain << std::endl;
     ss << "nVersion=" << nVersion << std::endl;
-    ss << "strPrivKey=" << strPrivKey << std::endl;
-    ss << "scriptPubKey=" << ScriptToAsmStr(scriptPubKey) << std::endl;
-    ss << "strKeyID=" << strKeyID << std::endl;
     ss << "title=" << title << std::endl;
     ss << "description=" << description << std::endl;
     ss << "hashID1=" << hashID1.ToString() << std::endl;
@@ -126,34 +120,6 @@ bool Sidechain::DeserializeFromProposalScript(const CScript& script)
     description = sidechain.description;
     hashID1 = sidechain.hashID1;
     hashID2 = sidechain.hashID2;
-
-    // Now re-create key data from sidechain number
-
-    const uint8_t nSC = nSidechain;
-    const unsigned char vchSC[1] = { nSC };
-
-    std::vector<unsigned char> vch256;
-    vch256.resize(CSHA256::OUTPUT_SIZE);
-    CSHA256().Write(&vchSC[0], 1).Finalize(&vch256[0]);
-
-    CKey key;
-    key.Set(vch256.begin(), vch256.end(), false);
-    if (!key.IsValid())
-        return false;
-
-    CBitcoinSecret vchSecret(key);
-    if (!vchSecret.IsValid())
-        return false;
-
-    CPubKey pubkey = key.GetPubKey();
-    if (!key.VerifyPubKey(pubkey))
-        return false;
-
-    CKeyID vchAddress = pubkey.GetID();
-
-    strKeyID = HexStr(vchAddress);
-    scriptPubKey = CScript() << OP_DUP << OP_HASH160 << ToByteVector(vchAddress) << OP_EQUALVERIFY << OP_CHECKSIG;
-    strPrivKey = vchSecret.ToString();
 
     return true;
 }

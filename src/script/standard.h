@@ -66,6 +66,7 @@ enum txnouttype
     TX_WITNESS_V0_KEYHASH,
     TX_WITNESS_UNKNOWN, //!< Only for Witness versions not already defined above
     TX_ANYONE_CAN_SPEND,
+    TX_DRIVECHAIN, //!< Drivechain BIP 300 sidechain escrow
 };
 
 class CNoDestination {

@@ -3142,7 +3142,6 @@ bool CWallet::CreateSidechainDeposit(CTransactionRef& tx, std::string& strFail, 
 
     // Dummy sign the transaction to calculate fee
     std::set<CInputCoin> setCoinsTemp = setCoins;
-    // TODO also dummy sign the sidechain UTXO input
     if (!DummySignTx(mtx, setCoinsTemp)) {
         strFail = "Dummy signing transaction for required fee calculation failed!";
         return false;
@@ -3177,38 +3176,6 @@ bool CWallet::CreateSidechainDeposit(CTransactionRef& tx, std::string& strFail, 
     Sidechain sidechain;
     if (!scdb.GetSidechain(nSidechain, sidechain))
         return false;
-
-    // Sign the sidechain utxo if we need to
-    if (returnAmount > CAmount(0)) {
-        CBitcoinSecret vchSecret;
-        bool fGood = vchSecret.SetString(sidechain.strPrivKey);
-        if (!fGood) {
-            strFail = "Invalid sidechain private key encoding!\n";
-            return false;
-        }
-        CKey privKey = vchSecret.GetKey();
-        if (!privKey.IsValid()) {
-            strFail = "Sidechain private key invalid!\n";
-            return false;
-        }
-
-        CBasicKeyStore tempKeystore;
-        tempKeystore.AddKey(privKey);
-
-        const CKeyStore& keystoreConst = tempKeystore;
-        const CTransaction& txToSign = mtx;
-
-        TransactionSignatureCreator creator(&keystoreConst, &txToSign, mtx.vin.size() - 1, returnAmount);
-
-        SignatureData sigdata;
-        bool sigCreated = ProduceSignature(creator, sidechainScript, sigdata);
-        if (!sigCreated) {
-            strFail = "Failed to sign sidechain inputs!\n";
-            return false;
-        }
-
-        mtx.vin.back().scriptSig = sigdata.scriptSig;
-    }
 
     // Sign the non sidechain inputs
     const CTransaction txToSign = mtx;

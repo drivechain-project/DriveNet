@@ -315,10 +315,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
                 // Check if this proposal is unique
                 bool fFound = false;
                 for (const SidechainActivationStatus& s : vActivation) {
-                    if (s.proposal.title == p.title ||
-                            s.proposal.strKeyID == p.strKeyID ||
-                            s.proposal.scriptPubKey == p.scriptPubKey ||
-                            s.proposal.strPrivKey == p.strPrivKey) {
+                    if (s.proposal == p) {
                         fFound = true;
                         break;
                     }
@@ -576,7 +573,8 @@ bool BlockAssembler::CreateWithdrawalPayout(uint8_t nSidechain, CMutableTransact
     // Calculate the amount to be withdrawn by Withdrawal
     CAmount amountWithdrawn = CAmount(0);
     for (const CTxOut& out : mtx.vout) {
-        if (out.scriptPubKey != sidechain.scriptPubKey)
+        uint8_t nSidechain;
+        if (!out.scriptPubKey.IsDrivechain(nSidechain))
             amountWithdrawn += out.nValue;
     }
 
@@ -617,37 +615,13 @@ bool BlockAssembler::CreateWithdrawalPayout(uint8_t nSidechain, CMutableTransact
     if (!mtx.vin.size())
         return false;
 
-    CBitcoinSecret vchSecret;
-    bool fGood = vchSecret.SetString(sidechain.strPrivKey);
-    if (!fGood)
-        return false;
-
-    CKey privKey = vchSecret.GetKey();
-    if (!privKey.IsValid())
-        return false;
-
-    // Set up keystore with sidechain's private key
-    CBasicKeyStore tempKeystore;
-    tempKeystore.AddKey(privKey);
-    const CKeyStore& keystoreConst = tempKeystore;
-
-    // Sign Withdrawal SCUTXO input
-    const CTransaction& txToSign = mtx;
-    TransactionSignatureCreator creator(&keystoreConst, &txToSign, 0, returnAmount - amountWithdrawn);
-    SignatureData sigdata;
-    bool sigCreated = ProduceSignature(creator, sidechainScript, sigdata);
-    if (!sigCreated)
-        return false;
-
-    mtx.vin[0].scriptSig = sigdata.scriptSig;
-#endif
-
     // Check to make sure that all of the outputs in this Withdrawal are unknown / new
     for (size_t o = 0; o < mtx.vout.size(); o++) {
         if (pcoinsTip->HaveCoin(COutPoint(mtx.GetHash(), o))) {
             return false;
         }
     }
+#endif
 
     tx = mtx;
 

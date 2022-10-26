@@ -28,6 +28,7 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_SCRIPTHASH: return "scripthash";
     case TX_MULTISIG: return "multisig";
     case TX_NULL_DATA: return "nulldata";
+    case TX_DRIVECHAIN: return "drivechain";
     case TX_WITNESS_V0_KEYHASH: return "witness_v0_keyhash";
     case TX_WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
     case TX_WITNESS_UNKNOWN: return "witness_unknown";
@@ -94,26 +95,22 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return false;
     }
 
-    // Provably prunable, data-carrying output
-    //
-    // So long as script passes the IsUnspendable() test and all but the first
-    // byte passes the IsPushOnly() test we don't care what exactly is in the
-    // script.
-    if (scriptPubKey.size() >= 1 && scriptPubKey[0] == OP_RETURN && scriptPubKey.IsPushOnly(scriptPubKey.begin()+1)) {
-        typeRet = TX_NULL_DATA;
-        return true;
-    }
-
     // Coin News data output
     if (scriptPubKey.IsNewsUSDay() || scriptPubKey.IsNewsTokyoDay()) {
         typeRet = TX_NULL_DATA;
         return true;
     }
 
-    // TODO
-    // For testing we will allow any OP_RETURN script to be standard
+    // OP_RETURN output
     if (scriptPubKey.size() && scriptPubKey[0] == OP_RETURN) {
         typeRet = TX_NULL_DATA;
+        return true;
+    }
+
+    // OP_DRIVECHAIN BIP 300 sidechain escrow output
+    uint8_t nSidechain;
+    if (scriptPubKey.IsDrivechain(nSidechain)) {
+        typeRet = TX_DRIVECHAIN;
         return true;
     }
 
@@ -258,6 +255,9 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::
         return false;
     if (typeRet == TX_NULL_DATA){
         // This is data, not addresses
+        return false;
+    }
+    if (typeRet == TX_DRIVECHAIN) {
         return false;
     }
 

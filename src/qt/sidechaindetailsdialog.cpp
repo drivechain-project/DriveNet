@@ -15,8 +15,6 @@ SidechainDetailsDialog::SidechainDetailsDialog(const Sidechain& sidechain, QWidg
 
     ui->labelVersion->setText(QString::number(sidechain.nVersion));
     ui->labelNumber->setText(QString::number(sidechain.nSidechain));
-    ui->labelKeyID->setText(QString::fromStdString(sidechain.strKeyID));
-    ui->labelPrivKey->setText(QString::fromStdString(sidechain.strPrivKey));
     ui->labelTitle->setText(QString::fromStdString(sidechain.title));
     ui->labelDescription->setText(QString::fromStdString(sidechain.description));
     ui->labelID1->setText(QString::fromStdString(sidechain.hashID1.ToString()));

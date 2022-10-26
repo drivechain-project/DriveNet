@@ -189,10 +189,7 @@ void SidechainDB::CacheSidechainProposals(const std::vector<Sidechain>& vSidecha
         // Make sure this proposal isn't already cached in our proposals
         bool fFound = false;
         for (const Sidechain& p : vSidechainProposal) {
-            if (p.title == s.title ||
-                    p.strKeyID == s.strKeyID ||
-                    p.scriptPubKey == s.scriptPubKey ||
-                    p.strPrivKey == s.strPrivKey)
+            if (p == s)
             {
                 fFound = true;
                 break;
@@ -347,30 +344,6 @@ std::vector<SidechainDeposit> SidechainDB::GetDeposits(uint8_t nSidechain) const
     return vDepositCache[nSidechain];
 }
 
-std::vector<SidechainDeposit> SidechainDB::GetDeposits(const std::string& strPrivKey) const
-{
-    // TODO refactor: only one GetDeposits function in SCDB
-    // TODO put deposits into a different container where the sidechain private
-    // key can be used to look them up quickly.
-
-    // Make sure that the hash is related to an active sidechain,
-    // and then return the result of the old function call.
-    uint8_t nSidechain = 0;
-    bool fFound = false;
-    for (const Sidechain& s : vSidechain) {
-        if (s.strPrivKey == strPrivKey) {
-            nSidechain = s.nSidechain;
-            fFound = true;
-            break;
-        }
-    }
-
-    if (!fFound)
-        return std::vector<SidechainDeposit>{};
-
-    return GetDeposits(nSidechain);
-}
-
 uint256 SidechainDB::GetHashBlockLastSeen()
 {
     return hashBlockLastSeen;
@@ -480,7 +453,9 @@ bool SidechainDB::GetSidechainScript(const uint8_t nSidechain, CScript& scriptPu
     if (!GetSidechain(nSidechain, sidechain))
         return false;
 
-    scriptPubKey = sidechain.scriptPubKey;
+    scriptPubKey.resize(2);
+    scriptPubKey[0] = OP_DRIVECHAIN;
+    scriptPubKey[1] = nSidechain;
 
     return true;
 }
@@ -565,20 +540,6 @@ bool SidechainDB::HasState() const
             return true;
     }
 
-    return false;
-}
-
-bool SidechainDB::HasSidechainScript(const std::vector<CScript>& vScript, uint8_t& nSidechain) const
-{
-    // Check if scriptPubKey is the deposit script of any active sidechains
-    for (const CScript& scriptPubKey : vScript) {
-        for (const Sidechain& s : vSidechain) {
-            if (scriptPubKey == s.scriptPubKey) {
-                nSidechain = s.nSidechain;
-                return true;
-            }
-        }
-    }
     return false;
 }
 
@@ -871,7 +832,7 @@ bool SidechainDB::SpendWithdrawal(uint8_t nSidechain, const uint256& hashBlock, 
             fReturnDestFound = true;
         }
 
-        if (HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechainScript)) {
+        if (scriptPubKey.IsDrivechain(nSidechainScript)) {
             if (fChangeOutputFound) {
                 // We already found a sidechain script output. This second
                 // sidechain output makes the Withdrawal invalid.
@@ -1052,7 +1013,7 @@ bool SidechainDB::TxnToDeposit(const CTransaction& tx, const int nTx, const uint
             continue;
 
         uint8_t nSidechain;
-        if (HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain)) {
+        if (scriptPubKey.IsDrivechain(nSidechain)) {
             // If we already found a burn output, more make the deposit invalid
             if (fBurnFound) {
                 LogPrintf("%s: Invalid - multiple burn outputs.\ntxid: %s\n", __func__, tx.GetHash().ToString());
@@ -1704,9 +1665,6 @@ void SidechainDB::UpdateActivationStatus(const std::vector<uint256>& vHash)
             sidechain.nVersion      = it->proposal.nVersion;
             sidechain.hashID1       = it->proposal.hashID1;
             sidechain.hashID2       = it->proposal.hashID2;
-            sidechain.strPrivKey    = it->proposal.strPrivKey;
-            sidechain.scriptPubKey  = it->proposal.scriptPubKey;
-            sidechain.strKeyID      = it->proposal.strKeyID;
             sidechain.title         = it->proposal.title;
             sidechain.description   = it->proposal.description;
 

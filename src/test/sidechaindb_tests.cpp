@@ -43,12 +43,6 @@ bool ActivateTestSidechain(SidechainDB& scdbTest, int nHeight = 0)
     proposal.nVersion = 0;
     proposal.title = "Test";
     proposal.description = "Description";
-    proposal.strKeyID = "58c63096724814c3dcdf088b9bb0dc48e6e1a89c";
-    proposal.strPrivKey = "91jbRcYNm4RpdJy4u99g8KyFTUsWxvXcJcYXYbQp9MU7mX1vg3K";
-
-    std::vector<unsigned char> vch = ParseHex("76a91458c63096724814c3dcdf088b9bb0dc48e6e1a89c88ac");
-    proposal.scriptPubKey = CScript(vch.begin(), vch.end());
-
     proposal.hashID1 = uint256S("b55d224f1fda033d930c92b1b40871f209387355557dd5e0d2b5dd9bb813c33f");
     proposal.hashID2 = uint160S("31d98584f3c570961359c308619f5cf2e9178482");
 
@@ -439,12 +433,6 @@ BOOST_AUTO_TEST_CASE(IsSidechainProposalCommit)
     proposal.nVersion = 0;
     proposal.title = "Test";
     proposal.description = "Description";
-    proposal.strKeyID = "80dca759b4ff2c9e9b65ec790703ad09fba844cd";
-
-    std::vector<unsigned char> vchPubKey = ParseHex("76a91480dca759b4ff2c9e9b65ec790703ad09fba844cd88ac");
-    proposal.scriptPubKey = CScript(vchPubKey.begin(), vchPubKey.end());
-
-    proposal.strPrivKey = "5Jf2vbdzdCccKApCrjmwL5EFc4f1cUm5Ah4L4LGimEuFyqYpa9r";
     proposal.hashID1 = uint256S("b55d224f1fda033d930c92b1b40871f209387355557dd5e0d2b5dd9bb813c33f");
     proposal.hashID2 = uint160S("31d98584f3c570961359c308619f5cf2e9178482");
 
@@ -466,12 +454,6 @@ BOOST_AUTO_TEST_CASE(IsSidechainActivationCommit)
     proposal.nVersion = 0;
     proposal.title = "Test";
     proposal.description = "Description";
-    proposal.strKeyID = "80dca759b4ff2c9e9b65ec790703ad09fba844cd";
-
-    std::vector<unsigned char> vchPubKey = ParseHex("76a91480dca759b4ff2c9e9b65ec790703ad09fba844cd88ac");
-    proposal.scriptPubKey = CScript(vchPubKey.begin(), vchPubKey.end());
-
-    proposal.strPrivKey = "5Jf2vbdzdCccKApCrjmwL5EFc4f1cUm5Ah4L4LGimEuFyqYpa9r";
     proposal.hashID1 = uint256S("b55d224f1fda033d930c92b1b40871f209387355557dd5e0d2b5dd9bb813c33f");
     proposal.hashID2 = uint160S("31d98584f3c570961359c308619f5cf2e9178482");
 
@@ -585,33 +567,6 @@ BOOST_AUTO_TEST_CASE(custom_vote_cache)
     BOOST_CHECK(scdbTest.CacheCustomVotes(vVote));
 }
 
-BOOST_AUTO_TEST_CASE(has_sidechain_script)
-{
-    // Test checking if a script is an active sidechain deposit script
-    SidechainDB scdbTest;
-
-    BOOST_CHECK(scdbTest.GetActiveSidechainCount() == 0);
-    BOOST_CHECK(ActivateTestSidechain(scdbTest, 0));
-    BOOST_CHECK(scdbTest.GetActiveSidechainCount() == 1);
-
-    Sidechain sidechain;
-    BOOST_CHECK(scdbTest.GetSidechain(0, sidechain));
-
-    CScript scriptPubKey = sidechain.scriptPubKey;
-
-    CScript scriptFromDB;
-    BOOST_CHECK(scdbTest.GetSidechainScript(0, scriptFromDB));
-    BOOST_CHECK(scriptFromDB == scriptPubKey);
-
-    uint8_t nSidechain;
-    BOOST_CHECK(scdbTest.HasSidechainScript(std::vector<CScript>{scriptPubKey}, nSidechain));
-    BOOST_CHECK(nSidechain == 0);
-    BOOST_CHECK(nSidechain == sidechain.nSidechain);
-
-    CScript scriptInvalid = CScript() << 0x01 << 0x02 << 0x03 << 0x04;
-    BOOST_CHECK(!scdbTest.HasSidechainScript(std::vector<CScript>{scriptInvalid}, nSidechain));
-}
-
 BOOST_AUTO_TEST_CASE(txn_to_deposit)
 {
     // Test of the TxnToDeposit function. This is used by the memory pool and
@@ -626,11 +581,11 @@ BOOST_AUTO_TEST_CASE(txn_to_deposit)
     BOOST_CHECK(scdbTest.GetActiveSidechainCount() == 1);
 
     // Serialized transaction
-    std::string strTx1 = "02000000011aeb87c9c992ddc8a39e7659eae88b4160980978fc03dbfa35328c07278d4de600000000484730440220417b0d700a06d205fafa9762876889cf68bcf5e4c01afd289cd9d343c022440c0220725a1a3766dc4021641ae7652788f48bded8554fc216b40ae5c68423ea82416c01ffffffff0380f69f0b010000001976a914a27085ec6c1dba30b631c6e197373b626773837388ac0000000000000000066a04616263640065cd1d000000001976a914cea73972efbfee83fbaba9021c6a0d88d3adf34a88ac00000000";
+    std::string hex = "02000000024a22bbf6f5ed7e518c751e7d18f7aeb685bbe26922ca78654cbce473fd8aa281000000006b48304502210092f756349ff70ff95fcaef60dd1201f4e03e63e84ab597c3b51563df0d49e62e022040130f8028718c3d26abe0b09cc4d3b2a9b8165dfb3923ba4f8af0fc22ed550b012102307e4c1474628c242532f470ea8bb5ec22c097c3730bd20b789373d550b25af3ffffffff4a22bbf6f5ed7e518c751e7d18f7aeb685bbe26922ca78654cbce473fd8aa2810200000000ffffffff030050a9ab000000001976a914b57b307319a5e598ed104e533f98bac67e5d99da88ac0000000000000000096a077061747269636b00752b7d0000000002d10000000000";
 
     // Deserialize
     CMutableTransaction mtx;
-    BOOST_CHECK(DecodeHexTx(mtx, strTx1));
+    BOOST_CHECK(DecodeHexTx(mtx, hex));
 
     // TxnToDeposit
     SidechainDeposit deposit;

@@ -1022,6 +1022,20 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_DRIVECHAIN:
+                {
+                    if (script.size() != 2)
+                        return set_error(serror, SCRIPT_ERR_DRIVECHAIN_SIZE);
+
+                    if (script[0] != OP_DRIVECHAIN)
+                        return set_error(serror, SCRIPT_ERR_DRIVECHAIN_FORMAT);
+
+                    stack.push_back(std::vector<unsigned char> {0xDC});
+
+                    pc += 2;
+                }
+                break;
+
                 default:
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             }

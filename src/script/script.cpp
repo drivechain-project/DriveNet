@@ -142,6 +142,8 @@ const char* GetOpName(opcodetype opcode)
 
     case OP_SIDECHAIN              : return "OP_SIDECHAIN";
 
+    case OP_DRIVECHAIN             : return "OP_DRIVECHAIN";
+
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 
     // Note:
@@ -235,6 +237,20 @@ bool CScript::IsWitnessProgram(int& version, std::vector<unsigned char>& program
         return true;
     }
     return false;
+}
+
+
+bool CScript::IsDrivechain(uint8_t& nSidechain) const
+{
+    if (this->size() != 2)
+        return false;
+
+    if ((*this)[0] != OP_DRIVECHAIN)
+        return false;
+
+    nSidechain = (*this)[1];
+
+    return true;
 }
 
 bool CScript::IsCriticalHashCommit(uint256& hash, std::vector<unsigned char>& vBytes) const

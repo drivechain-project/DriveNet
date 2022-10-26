@@ -32,7 +32,7 @@ int SidechainEscrowTableModel::rowCount(const QModelIndex & /*parent*/) const
 
 int SidechainEscrowTableModel::columnCount(const QModelIndex & /*parent*/) const
 {
-    return 7;
+    return 5;
 }
 
 QVariant SidechainEscrowTableModel::data(const QModelIndex &index, int role) const
@@ -64,21 +64,13 @@ QVariant SidechainEscrowTableModel::data(const QModelIndex &index, int role) con
         if (col == 2) {
             return object.name;
         }
-        // Address
-        if (col == 3) {
-            return object.address;
-        }
         // CTIP - TxID
-        if (col == 4) {
+        if (col == 3) {
             return object.CTIPTxID;
         }
         // CTIP - Index
-        if (col == 5) {
+        if (col == 4) {
             return object.CTIPIndex;
-        }
-        // Private key
-        if (col == 6) {
-            return object.privKey;
         }
     }
     }
@@ -97,13 +89,9 @@ QVariant SidechainEscrowTableModel::headerData(int section, Qt::Orientation orie
             case 2:
                 return QString("Name");
             case 3:
-                return QString("Address");
-            case 4:
                 return QString("CTIP TxID");
-            case 5:
+            case 4:
                 return QString("CTIP Index");
-            case 6:
-                return QString("Private Key");
             }
         }
     }
@@ -127,15 +115,6 @@ void SidechainEscrowTableModel::updateModel()
         object.nSidechain = s.nSidechain;
         object.fActive = true; // TODO
         object.name = QString::fromStdString(s.GetSidechainName());
-
-        // Sidechain deposit address
-        CKeyID sidechainKeyID;
-        sidechainKeyID.SetHex(s.strKeyID);
-        CSidechainAddress address;
-        address.Set(sidechainKeyID);
-
-        object.address = QString::fromStdString(address.ToString());
-        object.privKey = QString::fromStdString(s.strPrivKey);
 
         // Get the sidechain CTIP info
         SidechainCTIP ctip;
@@ -172,15 +151,6 @@ void SidechainEscrowTableModel::AddDemoData()
         object.nSidechain = s.nSidechain;
         object.fActive = true; // TODO
         object.name = QString::fromStdString(s.GetSidechainName());
-
-        // Sidechain deposit address
-        CKeyID sidechainKeyID;
-        sidechainKeyID.SetHex(s.strKeyID);
-        CSidechainAddress address;
-        address.Set(sidechainKeyID);
-
-        object.address = QString::fromStdString(address.ToString());
-        object.privKey = QString::fromStdString(s.strPrivKey);
 
         // Add demo CTIP data
         object.CTIPIndex = QString::number(s.nSidechain % 2 == 0 ? 0 : 1);

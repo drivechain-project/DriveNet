@@ -13,8 +13,6 @@ struct SidechainEscrowTableObject
     uint8_t nSidechain;
     bool fActive;
     QString name;
-    QString privKey;
-    QString address;
     QString CTIPTxID;
     QString CTIPIndex;
 };

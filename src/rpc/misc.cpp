@@ -744,22 +744,6 @@ UniValue listsidechaindeposits(const JSONRPCRequest& request)
     if (nSidechain < 0 || nSidechain > 255)
         throw JSONRPCError(RPC_MISC_ERROR, "Invalid sidechain number!");
 
-    // Convert sidechain number to sidechain key
-
-    const uint8_t nSC = nSidechain;
-    const unsigned char vchSC[1] = { nSC };
-
-    std::vector<unsigned char> vch256;
-    vch256.resize(CSHA256::OUTPUT_SIZE);
-    CSHA256().Write(&vchSC[0], 1).Finalize(&vch256[0]);
-
-    CKey key;
-    key.Set(vch256.begin(), vch256.end(), false);
-    if (!key.IsValid())
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
-
-    CBitcoinSecret vchSecret(key);
-
     // If TXID was passed in, make sure we also received N
     if (request.params.size() > 1 && request.params.size() < 3) {
         std::string strError = "Output index 'n' is required if TXID is provided!";
@@ -796,7 +780,7 @@ UniValue listsidechaindeposits(const JSONRPCRequest& request)
     UniValue arr(UniValue::VARR);
 
 #ifdef ENABLE_WALLET
-    std::vector<SidechainDeposit> vDeposit = scdb.GetDeposits(vchSecret.ToString());
+    std::vector<SidechainDeposit> vDeposit = scdb.GetDeposits(nSidechain);
     if (!vDeposit.size()) {
         std::string strError = "No deposits in cache for this sidechain!";
         LogPrintf("%s: %s\n", __func__, strError);
@@ -1296,8 +1280,6 @@ UniValue listactivesidechains(const JSONRPCRequest& request)
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("title", s.title));
         obj.push_back(Pair("description", s.description));
-        obj.push_back(Pair("privatekey", s.strPrivKey));
-        obj.push_back(Pair("keyid", s.strKeyID));
         obj.push_back(Pair("nversion", s.nVersion));
         obj.push_back(Pair("hashid1", s.hashID1.ToString()));
         obj.push_back(Pair("hashid2", s.hashID2.ToString()));
@@ -1328,8 +1310,6 @@ UniValue listsidechainactivationstatus(const JSONRPCRequest& request)
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("title", s.proposal.title));
         obj.push_back(Pair("description", s.proposal.description));
-        obj.push_back(Pair("privatekey", s.proposal.strPrivKey));
-        obj.push_back(Pair("keyid", s.proposal.strKeyID));
         obj.push_back(Pair("nage", s.nAge));
         obj.push_back(Pair("nfail", s.nFail));
 
@@ -1357,8 +1337,6 @@ UniValue listsidechainproposals(const JSONRPCRequest& request)
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("title", s.title));
         obj.push_back(Pair("description", s.description));
-        obj.push_back(Pair("privatekey", s.strPrivKey));
-        obj.push_back(Pair("keyid", s.strKeyID));
         obj.push_back(Pair("nversion", s.nVersion));
         obj.push_back(Pair("hashid1", s.hashID1.ToString()));
         obj.push_back(Pair("hashid2", s.hashID2.ToString()));
@@ -1381,7 +1359,6 @@ UniValue getsidechainactivationstatus(const JSONRPCRequest& request)
             + HelpExampleRpc("getsidechainactivationstatus", "")
             );
 
-    // TODO
     std::vector<SidechainActivationStatus> vStatus;
     vStatus = scdb.GetSidechainActivationStatus();
 
@@ -1390,8 +1367,6 @@ UniValue getsidechainactivationstatus(const JSONRPCRequest& request)
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("title", s.proposal.title));
         obj.push_back(Pair("description", s.proposal.description));
-        obj.push_back(Pair("privatekey", s.proposal.strPrivKey));
-        obj.push_back(Pair("keyid", s.proposal.strKeyID));
         obj.push_back(Pair("nage", s.nAge));
         obj.push_back(Pair("nfail", s.nFail));
         obj.push_back(Pair("proposalhash", s.proposal.GetSerHash().ToString()));
@@ -1486,9 +1461,6 @@ UniValue createsidechainproposal(const JSONRPCRequest& request)
     proposal.nSidechain = nSidechain;
     proposal.title = strTitle;
     proposal.description = strDescription;
-    proposal.strPrivKey = vchSecret.ToString();
-    proposal.strKeyID = HexStr(vchAddress);
-    proposal.scriptPubKey = sidechainScript;
     if (nVersion >= 0)
         proposal.nVersion = nVersion;
     else
@@ -1508,8 +1480,6 @@ UniValue createsidechainproposal(const JSONRPCRequest& request)
     obj.push_back(Pair("nSidechain", proposal.nSidechain));
     obj.push_back(Pair("title", proposal.title));
     obj.push_back(Pair("description", proposal.description));
-    obj.push_back(Pair("privatekey", proposal.strPrivKey));
-    obj.push_back(Pair("keyid", proposal.strKeyID));
     obj.push_back(Pair("version", proposal.nVersion));
     obj.push_back(Pair("hashID1", proposal.hashID1.ToString()));
     obj.push_back(Pair("hashID2", proposal.hashID2.ToString()));
