@@ -1775,9 +1775,7 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         // Check that all outputs are available and match the outputs in the block itself
         // exactly.
         for (size_t o = 0; o < tx.vout.size(); o++) {
-            uint8_t nSidechain;
-            if (!tx.vout[o].scriptPubKey.IsUnspendable() &&
-                    !tx.vout[o].scriptPubKey.IsDrivechain(nSidechain)) {
+            if (!tx.vout[o].scriptPubKey.IsUnspendable()) {
                 COutPoint out(hash, o);
                 Coin coin;
                 bool is_spent = view.SpendCoin(out, false, &coin);
