@@ -80,6 +80,7 @@ static bool SignStep(const BaseSignatureCreator& creator, const CScript& scriptP
     case TX_NONSTANDARD:
     case TX_NULL_DATA:
     case TX_WITNESS_UNKNOWN:
+    case TX_DRIVECHAIN:
         return false;
     case TX_PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
