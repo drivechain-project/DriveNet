@@ -587,18 +587,6 @@ void GetSidechainValues(const CCoinsView& coins, const CTransaction &tx, CAmount
     }
 }
 
-bool CheckBlindHash(const uint256& hash, const CTransaction &tx)
-{
-    CMutableTransaction mtx = tx;
-
-    // Remove inputs & change output
-    mtx.vin.clear();
-    mtx.vout.pop_back();
-
-    if (mtx.GetHash() == hash)
-        return true;
-
-    return false;
 }
 
 static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx,

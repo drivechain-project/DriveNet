@@ -318,8 +318,6 @@ void PruneBlockFilesManual(int nManualPruneHeight);
 void GetSidechainValues(const CCoinsView& coins, const CTransaction& tx, CAmount& amtSidechainUTXO, CAmount& amtUserInput,
                         CAmount& amtReturning, CAmount& amtWithdrawn);
 
-/** Compare the blinded hash with the transaction provided */
-bool CheckBlindHash(const uint256& hash, const CTransaction& tx);
 
 /** (try to) add transaction to memory pool
  * plTxnReplaced will be appended to with all transactions replaced from mempool **/
