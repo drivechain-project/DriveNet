@@ -321,7 +321,8 @@ void PruneBlockFilesManual(int nManualPruneHeight);
  */
 bool GetDrivechainAmounts(const CCoinsView& coins, const CTransaction& tx,
                         CAmount& amountSidechainIn, CAmount& amountIn,
-                        CAmount& amountSidechainOut, CAmount& amountWithdrawn);
+                        CAmount& amountSidechainOut, CAmount& amountWithdrawn,
+                        std::string& strFail);
 
 /** (try to) add transaction to memory pool
  * plTxnReplaced will be appended to with all transactions replaced from mempool **/

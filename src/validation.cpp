@@ -551,25 +551,35 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
 
 bool GetDrivechainAmounts(const CCoinsView& coins, const CTransaction &tx,
         CAmount& amountSidechainIn, CAmount& amountIn,
-        CAmount& amountSidechainOut, CAmount& amountWithdrawn)
+        CAmount& amountSidechainOut, CAmount& amountWithdrawn,
+        std::string& strFail)
 {
     // Collect coins from inputs
     std::vector<Coin> vCoin;
     for (const CTxIn& in : tx.vin) {
         Coin coin;
 
-        if (!coins.GetCoin(in.prevout, coin))
+        if (!coins.GetCoin(in.prevout, coin)) {
+            strFail = "Coin missing!\n";
             return false;
+        }
 
         vCoin.push_back(coin);
     }
 
-    // Count value of inputs
-    uint8_t nSidechain;
+    // Count value of inputs and make sure there is only 1 CTIP input
+    bool fSidechainInputFound = false;
+    uint8_t nSidechainIn;
     for (const Coin& c : vCoin) {
         const CTxOut& out = c.out;
         const CScript& scriptPubKey = out.scriptPubKey;
-        if (scriptPubKey.IsDrivechain(nSidechain)) {
+        if (scriptPubKey.IsDrivechain(nSidechainIn)) {
+            if (fSidechainInputFound) {
+                strFail = "Multiple sidechain inputs!";
+                return false;
+            } else {
+                fSidechainInputFound = true;
+            }
             amountSidechainIn += out.nValue;
         } else {
             amountIn += out.nValue;
@@ -577,9 +587,24 @@ bool GetDrivechainAmounts(const CCoinsView& coins, const CTransaction &tx,
     }
 
     // Count value of outputs
+    bool fSidechainOutputFound = false;
+    uint8_t nSidechainOut;
     for (const CTxOut& out : tx.vout) {
-        CScript scriptPubKey = out.scriptPubKey;
-        if (scriptPubKey.IsDrivechain(nSidechain)) {
+        const CScript scriptPubKey = out.scriptPubKey;
+        uint8_t nSidechainOutScript;
+        if (scriptPubKey.IsDrivechain(nSidechainOutScript)) {
+            if (fSidechainInputFound && nSidechainOutScript != nSidechainIn) {
+                strFail = "Output to different sidechain than input!";
+                return false;
+            }
+            else
+            if (fSidechainOutputFound && nSidechainOutScript != nSidechainOut) {
+                strFail = "Output to multiple sidechains!";
+                return false;
+            }
+            fSidechainOutputFound = true;
+            nSidechainOut = nSidechainOutScript;
+
             amountSidechainOut += out.nValue;
         } else {
             amountWithdrawn += out.nValue;
@@ -661,15 +686,15 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
     if (drivechainsEnabled)
     {
         // Get values to and from sidechain
+        CCoinsViewMemPool poolCoins(pcoinsTip.get(), pool);
         CAmount amountSidechainIn = CAmount(0);
         CAmount amountIn = CAmount(0);
         CAmount amountSidechainOut = CAmount(0);
         CAmount amountWithdrawn = CAmount(0);
-        CCoinsViewMemPool poolCoins(pcoinsTip.get(), pool);
-        if (!GetDrivechainAmounts(poolCoins, tx,
-                    amountSidechainIn, amountIn,
-                    amountSidechainOut, amountWithdrawn)) {
-            return state.DoS(0, false, REJECT_INVALID, "calculate-drivechain-amounts-coin-missing");
+        std::string strFail = "";
+        if (!GetDrivechainAmounts(poolCoins, tx, amountSidechainIn, amountIn,
+                    amountSidechainOut, amountWithdrawn, strFail)) {
+            return state.DoS(0, false, REJECT_INVALID, "get-drivechain-amounts: " + strFail);
         }
 
         if (amountSidechainIn > amountSidechainOut) {
@@ -2234,8 +2259,9 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
             CAmount amountIn = CAmount(0);
             CAmount amountSidechainOut = CAmount(0);
             CAmount amountWithdrawn = CAmount(0);
-            if (!GetDrivechainAmounts(view, tx, amountSidechainIn, amountIn, amountSidechainOut, amountWithdrawn))
-                return error("ConnectBlock(): Calculate Drivechain amounts failed - missing coin! txid: %s", tx.GetHash().ToString());
+            std::string strFail = "";
+            if (!GetDrivechainAmounts(view, tx, amountSidechainIn, amountIn, amountSidechainOut, amountWithdrawn, strFail))
+                return error("ConnectBlock(): Calculating Drivechain amounts failed: %s txid: %s", strFail, tx.GetHash().ToString());
 
             if (amountSidechainIn > amountSidechainOut) {
                 // Check if withdrawal bundle tx can be spent and track it
