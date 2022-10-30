@@ -549,18 +549,18 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, CValidationSt
     return CheckInputs(tx, state, view, true, flags, cacheSigStore, true, txdata);
 }
 
-void GetSidechainValues(const CCoinsView& coins, const CTransaction &tx, CAmount& amtSidechainUTXO, CAmount& amtUserInput,
-                        CAmount& amtReturning, CAmount& amtWithdrawn)
+bool GetDrivechainAmounts(const CCoinsView& coins, const CTransaction &tx,
+        CAmount& amountSidechainIn, CAmount& amountIn,
+        CAmount& amountSidechainOut, CAmount& amountWithdrawn)
 {
     // Collect coins from inputs
     std::vector<Coin> vCoin;
     for (const CTxIn& in : tx.vin) {
         Coin coin;
 
-        // TODO return false / assert here if we can't find the coin
-        if (!coins.GetCoin(in.prevout, coin)) {
-            return;
-        }
+        if (!coins.GetCoin(in.prevout, coin))
+            return false;
+
         vCoin.push_back(coin);
     }
 
@@ -568,25 +568,25 @@ void GetSidechainValues(const CCoinsView& coins, const CTransaction &tx, CAmount
     uint8_t nSidechain;
     for (const Coin& c : vCoin) {
         const CTxOut& out = c.out;
-        CScript scriptPubKey = out.scriptPubKey;
+        const CScript& scriptPubKey = out.scriptPubKey;
         if (scriptPubKey.IsDrivechain(nSidechain)) {
-            amtSidechainUTXO += out.nValue;
+            amountSidechainIn += out.nValue;
         } else {
-            amtUserInput += out.nValue;
+            amountIn += out.nValue;
         }
     }
 
-    // Count outputs
+    // Count value of outputs
     for (const CTxOut& out : tx.vout) {
         CScript scriptPubKey = out.scriptPubKey;
         if (scriptPubKey.IsDrivechain(nSidechain)) {
-            amtReturning += out.nValue;
+            amountSidechainOut += out.nValue;
         } else {
-            amtWithdrawn += out.nValue;
+            amountWithdrawn += out.nValue;
         }
     }
-}
 
+    return true;
 }
 
 static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx,
@@ -660,25 +660,26 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
     uint8_t nSidechain;
     if (drivechainsEnabled)
     {
-        // TODO be more selective about which transactions have
-        // GetSidechainValues() called on them for efficiency.
-
         // Get values to and from sidechain
-        CAmount amtSidechainUTXO = CAmount(0);
-        CAmount amtUserInput = CAmount(0);
-        CAmount amtReturning = CAmount(0);
-        CAmount amtWithdrawn = CAmount(0);
+        CAmount amountSidechainIn = CAmount(0);
+        CAmount amountIn = CAmount(0);
+        CAmount amountSidechainOut = CAmount(0);
+        CAmount amountWithdrawn = CAmount(0);
         CCoinsViewMemPool poolCoins(pcoinsTip.get(), pool);
-        GetSidechainValues(poolCoins, tx, amtSidechainUTXO, amtUserInput, amtReturning, amtWithdrawn);
+        if (!GetDrivechainAmounts(poolCoins, tx,
+                    amountSidechainIn, amountIn,
+                    amountSidechainOut, amountWithdrawn)) {
+            return state.DoS(0, false, REJECT_INVALID, "calculate-drivechain-amounts-coin-missing");
+        }
 
-        if (amtSidechainUTXO > amtReturning) {
+        if (amountSidechainIn > amountSidechainOut) {
             // M6 Withdrawal
 
             // Block sidechain withdrawals (Withdrawal(s)) from the memory pool.
             // When a Withdrawal has sufficient workscore it can be added to a block
             // by miners. Workscore is verified when the block is connected.
             return state.DoS(100, false, REJECT_INVALID, "sidechain-withdraw-loose");
-        } else if (amtReturning > amtSidechainUTXO) {
+        } else if (amountSidechainOut > amountSidechainIn) {
             // M5 Deposit
 
             // Find deposit burn output & OP_RETURN output with destination.
@@ -758,12 +759,11 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
             // until all other checks have passed.
             SidechainCTIP ctip;
             ctip.out = outpoint;
-            ctip.amount = amtReturning;
+            ctip.amount = amountSidechainOut;
             mapCTIPCopy[nSidechain] = ctip;
             fCTIPUpdated = true;
-
-        } else if (amtSidechainUTXO > 0) {
-            return state.DoS(100, false, REJECT_INVALID, "sidechain-deposit-invalid-ctip-withdraw");
+        } else if (amountSidechainIn > 0) {
+            return state.DoS(100, false, REJECT_INVALID, "sidechain-invalid-ctip-spend");
         }
     }
 
@@ -2230,15 +2230,15 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
                 return error("ConnectBlock(): Withdrawal (full id): %s has invalid format", tx.GetHash().ToString());
 
             // Get values to and from sidechain
-            CAmount amtSidechainUTXO = CAmount(0);
-            CAmount amtUserInput = CAmount(0);
-            CAmount amtReturning = CAmount(0);
-            CAmount amtWithdrawn = CAmount(0);
-            GetSidechainValues(view, tx, amtSidechainUTXO, amtUserInput, amtReturning, amtWithdrawn);
+            CAmount amountSidechainIn = CAmount(0);
+            CAmount amountIn = CAmount(0);
+            CAmount amountSidechainOut = CAmount(0);
+            CAmount amountWithdrawn = CAmount(0);
+            if (!GetDrivechainAmounts(view, tx, amountSidechainIn, amountIn, amountSidechainOut, amountWithdrawn))
+                return error("ConnectBlock(): Calculate Drivechain amounts failed - missing coin! txid: %s", tx.GetHash().ToString());
 
-            if (amtSidechainUTXO > amtReturning) {
-                // Note that we are just checking that the Withdrawal can be spent,
-                // and then tracking it to spend later in the function
+            if (amountSidechainIn > amountSidechainOut) {
+                // Check if withdrawal bundle tx can be spent and track it
                 if (scdb.SpendWithdrawal(nSidechain, block.GetHash(), tx, i, true /* fJustCheck */, true /* fDebug */)) {
                     vWithdrawalToSpend.push_back(std::make_tuple(nSidechain, tx, i));
                 } else {

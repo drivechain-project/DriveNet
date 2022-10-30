@@ -313,11 +313,15 @@ void PruneAndFlush();
 /** Prune block files up to a given height */
 void PruneBlockFilesManual(int nManualPruneHeight);
 
-/** Calculate input and output values specific
- *  to sidechain deposit transactions with mempool view */
-void GetSidechainValues(const CCoinsView& coins, const CTransaction& tx, CAmount& amtSidechainUTXO, CAmount& amtUserInput,
-                        CAmount& amtReturning, CAmount& amtWithdrawn);
-
+/** Calculate amount sent into and out of Drivechain BIP 300 hashrate escrow
+ * amountSidechainIn = Value of the hashrate escrow coin being spent
+ * amountIn = Value of coins input from outside of the escrow (user input)
+ * amountSidechainOut = Value being sent (back) to the hashrate escrow
+ * amountWithdrawn = Amount subtracted from hashrate escrow by this transaction
+ */
+bool GetDrivechainAmounts(const CCoinsView& coins, const CTransaction& tx,
+                        CAmount& amountSidechainIn, CAmount& amountIn,
+                        CAmount& amountSidechainOut, CAmount& amountWithdrawn);
 
 /** (try to) add transaction to memory pool
  * plTxnReplaced will be appended to with all transactions replaced from mempool **/
