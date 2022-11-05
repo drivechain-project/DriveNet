@@ -240,7 +240,6 @@ struct SidechainObj {
     virtual ~SidechainObj(void) { }
 
     uint256 GetSerHash(void) const;
-    CScript GetScript(void) const;
     virtual std::string ToString(void) const;
 };
 

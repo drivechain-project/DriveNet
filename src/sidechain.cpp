@@ -181,17 +181,6 @@ uint256 SidechainObj::GetSerHash(void) const
     return ret;
 }
 
-CScript SidechainObj::GetScript(void) const
-{
-    CDataStream ds (SER_DISK, CLIENT_VERSION);
-    if (sidechainop == DB_SIDECHAIN_BLOCK_OP)
-        ((SidechainBlockData *) this)->Serialize(ds);
-
-    CScript script;
-    script << std::vector<unsigned char>(ds.begin(), ds.end()) << OP_SIDECHAIN;
-    return script;
-}
-
 std::string SidechainObj::ToString(void) const
 {
     std::stringstream str;
