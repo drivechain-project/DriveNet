@@ -6,6 +6,7 @@
 #ifndef BITCOIN_INIT_H
 #define BITCOIN_INIT_H
 
+#include <chrono>
 #include <string>
 
 class CScheduler;
