@@ -42,7 +42,7 @@ echo "server=1" >> ~/.bitcoin/bitcoin.conf
 # Start bitcoin qt so we can watch this part
 echo
 echo "Waiting for bitcoin to start"
-./src/qt/bitcoin-qt --connect=0 &
+./src/bitcoind --connect=0 &
 sleep 5s
 
 echo
@@ -108,7 +108,9 @@ for ((x = 0; x < $NUM_BLOCKS; x++)); do
         DEST=`jq -r --argjson x "$x" --argjson y "$y" '.["blocks"][$x]["txn"][$y]["dest"]' blocks.json`
 
         TXID=`./src/bitcoin-cli sendtoaddress $DEST $AMOUNT`
-        echo "Tx: $TXID ([$x][$y]: $AMOUNT btc -> $DEST)"
+        if [ $((y % 500)) -eq 0 ]; then
+            echo "Tx: $TXID ([$x / $NUM_BLOCK][$y / $NUM_TX]: $AMOUNT btc -> $DEST)"
+        fi
     done
 
     # Mine block
