@@ -92,9 +92,6 @@ static CZMQNotificationInterface* pzmqNotificationInterface = nullptr;
 
 static const char* FEE_ESTIMATES_FILENAME="fee_estimates.dat";
 
-std::chrono::time_point<std::chrono::high_resolution_clock> timeStart;
-std::chrono::time_point<std::chrono::high_resolution_clock> timeStop;
-
 //////////////////////////////////////////////////////////////////////////////
 //
 // Shutdown
@@ -647,14 +644,6 @@ void ThreadImport(std::vector<fs::path> vImportFiles)
         }
         pblocktree->WriteReindexing(false);
         fReindex = false;
-
-        timeStop = std::chrono::high_resolution_clock::now();
-
-        std::chrono::duration<double, std::milli> ms = timeStop - timeStart;
-        std::cerr << "Reindexing complete!\n";
-        std::cerr << "Duration: " << ms.count() << "ms\n";
-        std::cerr << "Shutting down!\n";
-        StartShutdown();
 
         LogPrintf("Reindexing finished\n");
         // To avoid ending up in a situation without genesis block, re-try initializing (no-op if reindexing worked):
@@ -1437,8 +1426,6 @@ bool AppInitMain()
                 pblocktree.reset(new CBlockTreeDB(nBlockTreeDBCache, false, fReset));
 
                 if (fReset) {
-                    std::cerr << "\n\nStarted measuring duration of reindexing\n";
-                    timeStart = std::chrono::high_resolution_clock::now();
                     pblocktree->WriteReindexing(true);
                     //If we're reindexing in prune mode, wipe away unusable block files and all undo data files
                     if (fPruneMode)
