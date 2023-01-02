@@ -202,20 +202,24 @@ struct MeasureKey
 
 UniValue measure(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() != 4)
+    if (request.fHelp || request.params.size() != 5)
         throw std::runtime_error(
             "measure\n"
-            "\n\n"
+            "\n???\n"
             "\nArguments:\n"
-            "1. seed        (string, required) .\n"
-            "2. np2pkh      (numeric, required) .\n"
-            "3. nmultisig   (numeric, required) .\n"
-            "4. nsegwit     (numeric, required) .\n"
+            "1. seed        (string, required). Entropy for generating keys.\n"
+            "2. nblocks     (numeric, required). How long of a test chain.\n"
+            "3. np2pkh      (numeric, required). How many P2PKH per block.\n"
+            "4. nmultisig   (numeric, required). How many multisig per block.\n"
+            "5. nsegwit     (numeric, required). How many P2WPKH per block.\n"
             "\nResult:\n"
             + HelpExampleCli("measure", "")
         );
 
+    std::cerr << "\n\n\n\nStarted measure RPC\n";
+
     std::chrono::time_point<std::chrono::high_resolution_clock> timeStart;
+    std::chrono::time_point<std::chrono::high_resolution_clock> timeStartInvalidation;
     std::chrono::time_point<std::chrono::high_resolution_clock> timeStartValidation;
     std::chrono::time_point<std::chrono::high_resolution_clock> timeStop;
 
@@ -226,19 +230,22 @@ UniValue measure(const JSONRPCRequest& request)
     int nSigned = 0;
 
     std::string strSeed = request.params[0].get_str();
-    int nP2PKH = request.params[1].get_int();
-    int nMultisig = request.params[2].get_int();
-    int nSegwit = request.params[3].get_int();
+    int nBlocks = request.params[1].get_int();
+    int nP2PKH = request.params[2].get_int();
+    int nMultisig = request.params[3].get_int();
+    int nSegwit = request.params[4].get_int();
     int nTotal = nP2PKH + nMultisig + nSegwit;
 
     // Generate keys from seed
+    // Create one keypair for every output we want to create
 
-    std::vector<CKey> vKey;
-
+    // Create sha256 hash of seed to use as key entropy
     std::vector<unsigned char> vch256;
     vch256.resize(CSHA256::OUTPUT_SIZE);
-
     CSHA256().Write((unsigned char*)&strSeed[0], strSeed.size()).Finalize(&vch256[0]);
+
+    // Each key's bytes will be offset from the previous by 1
+    size_t nKeyIndex = 0;
 
     // Create one keypair for coinbase subsidies
     // Coinbase private key
@@ -255,253 +262,226 @@ UniValue measure(const JSONRPCRequest& request)
 
     const CScript coinbaseScriptPubKey = coinbaseScript->reserveScript;
 
-    // Setup keystore for keys we generate
+    // To hold keys we generate
     CBasicKeyStore keys;
     keys.AddKey(coinbaseKey);
 
-    // Create one keypair for every output we want to create
+    std::cerr << "Generating keys & output amounts!\n";
 
-    // Each key's bytes will be offset from the previous by 1
-    size_t nKeyIndex = 0;
+    // Generate keys for output types
+    // For each block we are going to create, we create a vector of MeasureKey
+    // objects to track keys and outputs to be spent in the measured test
+    std::vector<std::vector<MeasureKey>> vP2PKH;
+    std::vector<std::vector<MeasureKey>> vSegwit;
+    for (int i = 0; i < nBlocks; i++) {
+        // P2PKH keypairs
+        std::vector<MeasureKey> vP2PKHKey;
+        for (size_t i = 0; i < nP2PKH; i++) {
+            arith_uint256 arith(HexStr(vch256.begin(), vch256.end()));
+            arith += nKeyIndex;
 
-    // P2PKH keypairs
-    std::vector<MeasureKey> vP2PKH;
-    for (size_t i = 0; i < nP2PKH; i++) {
-        arith_uint256 arith(HexStr(vch256.begin(), vch256.end()));
-        arith += nKeyIndex;
+            uint256 hash = ArithToUint256(arith);
 
-        uint256 hash = ArithToUint256(arith);
+            CKey key;
+            key.Set(hash.begin(), hash.end(), true);
+            if (!key.IsValid())
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
 
-        CKey key;
-        key.Set(hash.begin(), hash.end(), true);
-        if (!key.IsValid())
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
+            CScript scriptPubKey = CScript() << OP_DUP << OP_HASH160
+                << ToByteVector(key.GetPubKey().GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
 
-        CScript scriptPubKey = CScript() << OP_DUP << OP_HASH160
-            << ToByteVector(key.GetPubKey().GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            // Come up with a random-ish amount to send. min 0.00001 max 0.09991234
+            CAmount amount = GetRand(0.09991234 * COIN);
+            if (amount < 0.0010 * COIN)
+                amount += 0.0010 * COIN;
 
-        // Come up with a random-ish amount to send. min 0.00001 max 0.09991234
-        CAmount amount = GetRand(0.09991234 * COIN);
-        if (amount < 0.0010 * COIN)
-            amount += 0.0010 * COIN;
+            MeasureKey measure;
+            measure.scriptPubKey = scriptPubKey;
+            measure.key = key;
+            measure.amount = amount;
+            vP2PKHKey.push_back(measure);
 
-        MeasureKey measure;
-        measure.scriptPubKey = scriptPubKey;
-        measure.key = key;
-        measure.amount = amount;
-        vP2PKH.push_back(measure);
+            std::cerr << "P2PKH " << FormatMoney(amount) << " : " << hash.ToString() << std::endl;
 
-        keys.AddKey(key);
-        nKeyIndex++;
+            keys.AddKey(key);
+            nKeyIndex++;
+        }
+        vP2PKH.push_back(vP2PKHKey);
+
+        // P2WPKH keypairs
+        std::vector<MeasureKey> vSegwitKey;
+        for (size_t i = 0; i < nSegwit; i++) {
+            arith_uint256 arith(HexStr(vch256.begin(), vch256.end()));
+            arith += nKeyIndex;
+
+            uint256 hash = ArithToUint256(arith);
+
+            CKey key;
+            key.Set(hash.begin(), hash.end(), true);
+            if (!key.IsValid())
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
+
+            CScript scriptPubKey = CScript() << OP_DUP << OP_HASH160
+                << ToByteVector(key.GetPubKey().GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+            CAmount amount = GetRand(0.09991234 * COIN);
+            if (amount < 0.0010 * COIN)
+                amount += 0.0010 * COIN;
+
+            MeasureKey measure;
+            measure.scriptPubKey = GetScriptForWitness(scriptPubKey);
+            measure.key = key;
+            measure.amount = amount;
+            vSegwitKey.push_back(measure);
+
+            std::cerr << "P2WPKH " << FormatMoney(amount) << " : " << hash.ToString() << std::endl;
+
+            keys.AddKey(key);
+            nKeyIndex++;
+        }
+        vSegwit.push_back(vSegwitKey);
     }
 
-    // P2WPKH keypairs
-    std::vector<MeasureKey> vSegwit;
-    for (size_t i = 0; i < nSegwit; i++) {
-        arith_uint256 arith(HexStr(vch256.begin(), vch256.end()));
-        arith += nKeyIndex;
-
-        uint256 hash = ArithToUint256(arith);
-
-        CKey key;
-        key.Set(hash.begin(), hash.end(), true);
-        if (!key.IsValid())
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
-
-        CScript scriptPubKey = CScript() << OP_DUP << OP_HASH160
-            << ToByteVector(key.GetPubKey().GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-
-        CAmount amount = GetRand(0.09991234 * COIN);
-        if (amount < 0.0010 * COIN)
-            amount += 0.0010 * COIN;
-
-        MeasureKey measure;
-        measure.scriptPubKey = GetScriptForWitness(scriptPubKey);
-        measure.key = key;
-        measure.amount = amount;
-        vSegwit.push_back(measure);
-
-        keys.AddKey(key);
-        nKeyIndex++;
-    }
-
-    // TODO these scripts are receiving all outputs, instead it should be a
-    // list for each type
     const CKeyStore& keyStore = keys;
 
-    // Generate coinbase subsidy coins to fund our test transactions
+    std::cerr << "Done making keys & amounts...\n";
 
-    // We will create 500 outputs per coinbase, so we need to mine 1 block
-    // for every 500 outputs of each type we want to create.
-    int nCoinbase = nTotal;
-    nCoinbase = (nCoinbase <= 500 ? 1 : nCoinbase / 500);
-    nCoinbase += 10; // Extra subsidy to cover uneven output types amounts
-    nCoinbase += 100; // 100 extra blocks for coinbase maturity
+    // Create & mine outputs that we can use in the test
+    std::vector<uint256> vMined;
+    int nCoinbase = 0;
+    for (int i = 0; i < nBlocks; i++) {
+        // Keep track of transactions we create
+        std::vector<CMutableTransaction> vTx;
 
-    UniValue blockHashes(UniValue::VARR);
-    blockHashes = generateBlocks(coinbaseScript, nCoinbase, 1000000, false);
+        // Generate coinbase subsidy coins to fund our test transactions
 
-    if (blockHashes.size() != nCoinbase)
-        throw JSONRPCError(RPC_MISC_ERROR, "Error: Mined too few blocks!");
+        // We will create 500 outputs per coinbase, so we need to mine 1 block
+        // for every 500 outputs of each type we want to create.
+        nCoinbase = nTotal;
+        nCoinbase = (nCoinbase <= 500 ? 1 : nCoinbase / 500);
+        nCoinbase += 10; // Extra subsidy to cover uneven output types amounts
+        nCoinbase += 100; // 100 extra blocks for coinbase maturity
 
-    // Keep track of coins generated - skip immature
-    std::vector<CTxIn> vCoinbase;
-    for (size_t i = 0; i < blockHashes.size() - 100; i++) {
-        uint256 hash = uint256S(blockHashes[i].get_str());
+        UniValue blockHashes(UniValue::VARR);
+        blockHashes = generateBlocks(coinbaseScript, nCoinbase, 1000000, false);
 
-        if (mapBlockIndex.count(hash) == 0)
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
+        if (blockHashes.size() != nCoinbase)
+            throw JSONRPCError(RPC_MISC_ERROR, "Error: Mined too few blocks!");
 
-        CBlock block;
-        CBlockIndex* pblockindex = mapBlockIndex[hash];
+        // Keep track of coins generated - skip immature
+        std::vector<CTxIn> vCoinbase;
+        for (size_t i = 0; i < blockHashes.size() - 100; i++) {
+            uint256 hash = uint256S(blockHashes[i].get_str());
 
-        if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
-            throw JSONRPCError(RPC_MISC_ERROR, "Block not found on disk");
+            if (mapBlockIndex.count(hash) == 0)
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
 
-        uint256 txid = block.vtx[0]->GetHash();
+            CBlock block;
+            CBlockIndex* pblockindex = mapBlockIndex[hash];
 
-        vCoinbase.push_back(CTxIn(txid, 0, CScript()));
-    }
+            if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
+                throw JSONRPCError(RPC_MISC_ERROR, "Block not found on disk");
 
-    // Keep track of transactions we create
-    std::vector<CMutableTransaction> vTx;
+            uint256 txid = block.vtx[0]->GetHash();
 
-    // Generate p2pkh script outputs
-    for (size_t x = 0; x < vP2PKH.size();) {
-        CMutableTransaction mtx;
-
-        if (vCoinbase.empty())
-            throw JSONRPCError(RPC_MISC_ERROR, "missing coinbase coin!");
-
-        // Use one of our coinbase subsidies as the input and delete it
-        mtx.vin.push_back(vCoinbase.back());
-        vCoinbase.pop_back();
-
-        // Create outputs
-
-        size_t nOut = nP2PKH - x;
-        if (nOut > 500)
-            nOut = 500;
-        for (size_t y = 0; y < nOut; y++)
-            mtx.vout.push_back(CTxOut(vP2PKH[x + y].amount, vP2PKH[x + y].scriptPubKey));
-
-        SignatureData signature;
-        if (!ProduceSignature(MutableTransactionSignatureCreator(
-                        &keyStore, &mtx, 0, 50 * COIN, SIGHASH_ALL),
-                    coinbaseScriptPubKey, signature)) {
-            throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign!");
+            vCoinbase.push_back(CTxIn(txid, 0, CScript()));
         }
 
-        // Keep track of the transactions & outputs we created
+        // Generate p2pkh script outputs
+        for (size_t x = 0; x < vP2PKH[i].size();) {
+            CMutableTransaction mtx;
 
-        UpdateTransaction(mtx, 0, signature);
-        vTx.push_back(mtx);
+            if (vCoinbase.empty())
+                throw JSONRPCError(RPC_MISC_ERROR, "missing coinbase coin!");
 
-        // Update MeasureKey object with coins we created
-        for (size_t y = 0; y < nOut; y++)
-            vP2PKH[x + y].coin = CTxIn(mtx.GetHash(), y, CScript());
+            // Use one of our coinbase subsidies as the input and delete it
+            mtx.vin.push_back(vCoinbase.back());
+            vCoinbase.pop_back();
 
-        x += nOut;
-    }
+            // Create outputs
 
-    // TODO
-    std::vector<CTxIn> vMultisig;
-    // Taproot?
+            size_t nOut = nP2PKH - x;
+            if (nOut > 500)
+                nOut = 500;
+            for (size_t y = 0; y < nOut; y++)
+                mtx.vout.push_back(CTxOut(vP2PKH[i][x + y].amount, vP2PKH[i][x + y].scriptPubKey));
 
-    // Generate segwit outputs
-    for (size_t x = 0; x < vSegwit.size();) {
-        CMutableTransaction mtx;
+            SignatureData signature;
+            if (!ProduceSignature(MutableTransactionSignatureCreator(
+                            &keyStore, &mtx, 0, 50 * COIN, SIGHASH_ALL),
+                        coinbaseScriptPubKey, signature)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign!");
+            }
 
-        if (vCoinbase.empty())
-            throw JSONRPCError(RPC_MISC_ERROR, "missing coinbase coin!");
+            // Keep track of the transactions & outputs we created
 
-        // Use one of our coinbase subsidies as the input and delete it
-        mtx.vin.push_back(vCoinbase.back());
-        vCoinbase.pop_back();
+            UpdateTransaction(mtx, 0, signature);
+            vTx.push_back(mtx);
 
-        // Create outputs
+            // Update MeasureKey object with coins we created
+            for (size_t y = 0; y < nOut; y++)
+                vP2PKH[i][x + y].coin = CTxIn(mtx.GetHash(), y, CScript());
 
-        size_t nOut = nSegwit - x;
-        if (nOut > 500)
-            nOut = 500;
-        for (size_t y = 0; y < nOut; y++)
-            mtx.vout.push_back(CTxOut(vSegwit[x + y].amount, vSegwit[x + y].scriptPubKey));
+            x += nOut;
 
-        SignatureData signature;
-        if (!ProduceSignature(MutableTransactionSignatureCreator(
-                        &keyStore, &mtx, 0, 50 * COIN, SIGHASH_ALL),
-                    coinbaseScriptPubKey, signature)) {
-            throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign!");
+            std::cerr << "Created " << nOut << " P2PKH script outputs\n";
         }
 
-        // Keep track of the transactions & outputs we created
+        // TODO
+        std::vector<CTxIn> vMultisig;
+        // Taproot?
 
-        UpdateTransaction(mtx, 0, signature);
-        vTx.push_back(mtx);
+        // Generate segwit outputs
+        for (size_t x = 0; x < vSegwit[i].size();) {
+            CMutableTransaction mtx;
 
-        // Update MeasureKey object with coins we created
-        for (size_t y = 0; y < nOut; y++)
-            vSegwit[x + y].coin = CTxIn(mtx.GetHash(), y, CScript());
+            if (vCoinbase.empty())
+                throw JSONRPCError(RPC_MISC_ERROR, "missing coinbase coin!");
 
-        x += nOut;
-    }
+            // Use one of our coinbase subsidies as the input and delete it
+            mtx.vin.push_back(vCoinbase.back());
+            vCoinbase.pop_back();
 
-    // Mine block with coins we will use for testing
-    generateBlocks(coinbaseScript, 1, 1000000, false);
+            // Create outputs
 
-    // Start creating test transactions
+            size_t nOut = nSegwit - x;
+            if (nOut > 500)
+                nOut = 500;
+            for (size_t y = 0; y < nOut; y++)
+                mtx.vout.push_back(CTxOut(vSegwit[i][x + y].amount, vSegwit[i][x + y].scriptPubKey));
 
-    CAmount feeAmount = 0.0001 * COIN;
+            SignatureData signature;
+            if (!ProduceSignature(MutableTransactionSignatureCreator(
+                            &keyStore, &mtx, 0, 50 * COIN, SIGHASH_ALL),
+                        coinbaseScriptPubKey, signature)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign!");
+            }
 
-    // Spend 1 P2PKH -> 2 P2PKH
-    for (const MeasureKey& k : vP2PKH) {
-        CMutableTransaction mtx;
-        mtx.vin.push_back(k.coin);
-        mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
-        mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
+            // Keep track of the transactions & outputs we created
 
-        SignatureData signature;
-        if (!ProduceSignature(MutableTransactionSignatureCreator(
-                        &keyStore, &mtx, 0, k.amount, SIGHASH_ALL),
-                    k.scriptPubKey, signature)) {
-            throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign p2pkh!");
+            UpdateTransaction(mtx, 0, signature);
+            vTx.push_back(mtx);
+
+            // Update MeasureKey object with coins we created
+            for (size_t y = 0; y < nOut; y++)
+                vSegwit[i][x + y].coin = CTxIn(mtx.GetHash(), y, CScript());
+
+            x += nOut;
+
+            std::cerr << "Created " << nOut << " P2WPKH script outputs\n";
         }
 
-        UpdateTransaction(mtx, 0, signature);
-        vTx.push_back(mtx);
-
-        nSigned++;
-    }
-
-    // Spend 1 witness v0 key hash -> 2 witness v0 key hash
-    for (const MeasureKey& k : vSegwit) {
-        CMutableTransaction mtx;
-        mtx.vin.push_back(k.coin);
-        mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
-        mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
-
-        SignatureData signature;
-        if (!ProduceSignature(MutableTransactionSignatureCreator(
-                        &keyStore, &mtx, 0, k.amount, SIGHASH_ALL),
-                    k.scriptPubKey, signature)) {
-            throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign segwit!");
-        }
-
-        UpdateTransaction(mtx, 0, signature);
-        vTx.push_back(mtx);
-
-        nSigned++;
-    }
-
-    // Add all transactions to our mempool
-    for (const CMutableTransaction& tx : vTx) {
-        {
+        // Add transactions to our mempool
+        for (const CMutableTransaction& tx : vTx) {
             LOCK(cs_main);
             CValidationState state;
             bool fMissing = false;
             if (!AcceptToMemoryPool(mempool, state, MakeTransactionRef(tx),
                         &fMissing, nullptr, false, 100 * COIN)) {
-                std::string strError = "Rejected from mempool: ";
+                std::string strError = "Rejected setup tx from mempool: ";
+
+                std::cerr << "Rejected tx:\n" << tx.GetHash().ToString() << std::endl;
+                std::cerr << "in: " << tx.vin[0].ToString() << std::endl;
 
                 if (fMissing)
                     strError + "missing inputs!";
@@ -511,21 +491,114 @@ UniValue measure(const JSONRPCRequest& request)
                 throw JSONRPCError(RPC_MISC_ERROR, strError);
             }
         }
+
+        // Mine block with outputs we will use for testing
+        generateBlocks(coinbaseScript, 1, 1000000, false);
     }
 
-    blockHashes.clear();
+    CAmount feeAmount = 0.0001 * COIN;
 
-    // Mine test transactions into block
-    blockHashes = generateBlocks(coinbaseScript, 1, 1000000, false);
+    // Create testing chain to be measured
+    int nTx = 0;
+    int nP2PKHOut = 0;
+    int nMultisigOut = 0;
+    int nSegwitOut = 0;
+    for (int i = 0; i < nBlocks; i++) {
+        std::cerr << "creating test chain block " << i << std::endl;
+        std::vector<CMutableTransaction> vTx;
+        // Spend 1 P2PKH -> 2 P2PKH
+        for (const MeasureKey& k : vP2PKH[i]) {
+            CMutableTransaction mtx;
+            mtx.vin.push_back(k.coin);
+            mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
+            mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
 
-    // Invalidate chain tip and then revalidate while measuring execution time
+            SignatureData signature;
+            if (!ProduceSignature(MutableTransactionSignatureCreator(
+                            &keyStore, &mtx, 0, k.amount, SIGHASH_ALL),
+                        k.scriptPubKey, signature)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign p2pkh!");
+            }
 
-    uint256 hashTip = uint256S(blockHashes[0].get_str());
-    if (!mapBlockIndex.count(hashTip))
+            UpdateTransaction(mtx, 0, signature);
+            vTx.push_back(mtx);
+
+            std::cerr << "Going to spend P2PKH: " << mtx.vin[0].ToString() << std::endl;
+
+            nSigned++;
+
+            nP2PKHOut += 2;
+        }
+
+        // Spend 1 witness v0 key hash -> 2 witness v0 key hash
+        for (const MeasureKey& k : vSegwit[i]) {
+            CMutableTransaction mtx;
+            mtx.vin.push_back(k.coin);
+            mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
+            mtx.vout.push_back(CTxOut((k.amount / 2) - (feeAmount / 2), coinbaseScriptPubKey));
+
+            SignatureData signature;
+            if (!ProduceSignature(MutableTransactionSignatureCreator(
+                            &keyStore, &mtx, 0, k.amount, SIGHASH_ALL),
+                        k.scriptPubKey, signature)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to sign segwit!");
+            }
+
+            UpdateTransaction(mtx, 0, signature);
+            vTx.push_back(mtx);
+
+            std::cerr << "Going to spend P2WPKH: " << mtx.vin[0].ToString() << std::endl;
+
+            nSigned++;
+
+            nSegwitOut += 2;
+        }
+
+        // Add test transactions to our mempool
+        for (const CMutableTransaction& tx : vTx) {
+            LOCK(cs_main);
+            CValidationState state;
+            bool fMissing = false;
+            if (!AcceptToMemoryPool(mempool, state, MakeTransactionRef(tx),
+                        &fMissing, nullptr, false, 100 * COIN)) {
+                std::string strError = "Rejected test tx from mempool: ";
+                std::cerr << "Rejected tx:\n" << tx.GetHash().ToString() << std::endl;
+                std::cerr << "in: " << tx.vin[0].ToString() << std::endl;
+
+                if (fMissing)
+                    strError + "missing inputs!";
+
+                strError += state.GetRejectReason();
+
+                throw JSONRPCError(RPC_MISC_ERROR, strError);
+            }
+        }
+
+        // Mine test transactions into block
+        UniValue blockHashes(UniValue::VARR);
+        blockHashes = generateBlocks(coinbaseScript, 1, 1000000, false);
+
+        vMined.push_back(uint256S(blockHashes[0].get_str()));
+
+        nTx += vTx.size();
+    }
+
+    std::cerr << "\n\nPerforming measurements!\n";
+
+    // Invalidate chain and then revalidate while measuring execution time
+
+    if (vMined.empty())
         throw JSONRPCError(RPC_MISC_ERROR, "");
 
     CValidationState state;
+    const uint256 hashTip = vMined.back();
+    const uint256 hashFork = vMined.front();
+    if (!mapBlockIndex.count(hashFork))
+        throw JSONRPCError(RPC_MISC_ERROR, "");
+
     CBlockIndex* pblockindex = mapBlockIndex[hashTip];
+
+    timeStartInvalidation = std::chrono::high_resolution_clock::now(); // TODO log
 
     InvalidateBlock(state, Params(), pblockindex);
     ResetBlockFailureFlags(pblockindex);
@@ -536,44 +609,77 @@ UniValue measure(const JSONRPCRequest& request)
 
     std::chrono::duration<double, std::milli> msRPC = timeStop - timeStart;
     std::chrono::duration<double, std::milli> msValidation = timeStop - timeStartValidation;
+    std::chrono::duration<double, std::milli> msInvalidation = timeStartValidation - timeStartInvalidation;
 
     std::string strRPCDuration = std::to_string(msRPC.count()) + "ms";
     std::string strValidationDuration = std::to_string(msValidation.count()) + "ms";
+    std::string strInvalidationDuration = std::to_string(msInvalidation.count()) + "ms";
 
-    int nSeconds = msValidation.count();
+    // Now that we stopped measuring, double check that the chain was activated
+    {
+        LOCK(cs_main);
+        uint256 hash = chainActive.Tip()->GetBlockHash();
+        if (hash != hashTip)
+            throw JSONRPCError(RPC_MISC_ERROR, "Failed to re-activate chain");
+    }
 
-    std::string strTxRate = "";
+    int nMS = msValidation.count();
+
+    int nRate = nTx && nMS ? nTx / nMS : 0;
+    nRate *= 1000;
+
+    std::string strTxRate = "~";
+    strTxRate += std::to_string(nRate);
     strTxRate += " txns/s";
 
-    int nHours = nSeconds / 1000 / 60 / 60;
+    int nHours = nMS / 1000 / 60 / 60;
     int nDays =  nHours / 24;
     std::string strDuration = strValidationDuration + " and ";
     strDuration += std::to_string(nHours) + "h ";
     strDuration += std::to_string(nDays) + "d ";
 
-    CBlock block;
-    if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
-        throw JSONRPCError(RPC_MISC_ERROR, "");
+    // Load blocks from disk and get stats
+    UniValue blockInfo(UniValue::VARR);
+    for (size_t i = 0; i < vMined.size(); i++) {
+        const uint256 hashTip = vMined[i];
+        if (!mapBlockIndex.count(hashTip))
+            throw JSONRPCError(RPC_MISC_ERROR, "");
 
-    int nBlockWeight = (int)::GetBlockWeight(block);
-    int nBlockSize = (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
+        CBlockIndex* pblockindex = mapBlockIndex[hashTip];
+
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pblockindex, Params().GetConsensus()))
+            throw JSONRPCError(RPC_MISC_ERROR, "");
+
+        int nBlockWeight = (int)::GetBlockWeight(block);
+        int nBlockSize = (int)::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION);
+
+        UniValue obj(UniValue::VOBJ);
+        obj.push_back(Pair("hash",          hashTip.ToString()));
+        obj.push_back(Pair("weight",        nBlockWeight));
+        obj.push_back(Pair("size",          nBlockSize));
+        obj.push_back(Pair("p2pkhout",      nP2PKHOut / nBlocks));
+        obj.push_back(Pair("multisigout",   nMultisigOut / nBlocks));
+        obj.push_back(Pair("segwitout",     nSegwitOut / nBlocks));
+        blockInfo.push_back(obj);
+    }
 
     UniValue obj(UniValue::VOBJ);
     obj.push_back(Pair("seed",                  strSeed));
     obj.push_back(Pair("keys",                  nTotal));
     obj.push_back(Pair("coinbase",              nCoinbase));
-    obj.push_back(Pair("p2pkh",                 vP2PKH.size()));
-    obj.push_back(Pair("multisig",              vMultisig.size()));
-    obj.push_back(Pair("segwit",                vSegwit.size()));
-    obj.push_back(Pair("txns",                  vTx.size()));
+    obj.push_back(Pair("txns",                  nTx));
     obj.push_back(Pair("signatures",            nSigned));
-    obj.push_back(Pair("size",                  nBlockSize));
-    obj.push_back(Pair("weight",                nBlockWeight));
-    obj.push_back(Pair("tip",                   hashTip.ToString()));
     obj.push_back(Pair("rpcduration",           strRPCDuration));
     obj.push_back(Pair("txrate",                strTxRate));
     obj.push_back(Pair("validationduration",    strValidationDuration));
+    obj.push_back(Pair("invalidationduration",  strInvalidationDuration));
     obj.push_back(Pair("formatedduration",      strDuration));
+    obj.push_back(Pair("blocks",                nBlocks));
+    obj.push_back(Pair("chain",                 blockInfo));
+
+    std::cerr << "Done!\n";
+
     return obj;
 }
 
@@ -1377,7 +1483,7 @@ static const CRPCCommand commands[] =
 
 
     { "generating",         "generatetoaddress",      &generatetoaddress,      {"nblocks","address","maxtries"} },
-    { "generating",         "measure",                &measure,                {"np2pkh"} },
+    { "generating",         "measure",                &measure,                {"seed", "nblocks", "np2pkh","nmultisig","nsegwit"} },
 
 
     { "util",               "estimatefee",            &estimatefee,            {"nblocks"} },
